@@ -61,6 +61,27 @@ The workflow contains no secrets; it calls `desklock`, which reads the token fro
 
 To change keywords or add hotkeys, edit them in Alfred, or change the keywords at the top of `alfred/build.py` and run `python3 alfred/build.py`.
 
+## 4. iPhone (optional)
+
+The ntfy iPhone app logs in with a username and password, not a token. Give the phone its own user, from inside the LXC:
+
+```bash
+runuser -u ntfy -- ntfy user add iphone          # asks for a password
+runuser -u ntfy -- ntfy access iphone desk rw    # rw = can also lock the Macs; ro = watch only
+```
+
+In the app, add your server URL, subscribe to `desk`, and sign in as `iphone`. The phone needs to reach the server (on your LAN or Tailscale).
+
+**Push notifications while the app is closed**: iOS only delivers them through Apple's push service, so the setup script adds `upstream-base-url: "https://ntfy.sh"`. Your server then tells ntfy.sh only *that* a message is waiting (message ID plus a hash of the topic URL, never the text), and the phone fetches the real message from your server. To turn that off, run the script with `UPSTREAM= bash setup-ntfy.sh ...`.
+
+**Locking from the phone**: with `rw` access, an iOS Shortcut using *Get Contents of URL* (POST to `https://ntfy.yourdomain.com/desk`, body `sleep` or `screensaver`, basic auth as `iphone`) locks every Mac, including from your Watch or Siri.
+
+Every lock also shows a notification on the phone; mute the topic in the app if that's noise.
+
+## Updating the server
+
+Re-running `setup-ntfy.sh` is safe. It rewrites `/etc/ntfy/server.yml` (keeping a timestamped backup), keeps all users and permissions, restarts ntfy, and prints a new token. Old tokens keep working, so the Macs don't need changes.
+
 ## Behaviour worth knowing
 
 - **The Mac you trigger from locks too**: it receives its own message, so there's no special case.

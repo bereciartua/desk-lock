@@ -5,11 +5,17 @@
 #   bash setup-ntfy.sh https://ntfy.yourdomain.com
 #
 # Prints an access token at the end. Use it with mac/install.sh on every Mac.
+# Safe to re-run: rewrites server.yml (keeping a backup), keeps existing users
+# and permissions, and prints a new token (old tokens keep working).
+#
+# Options (environment variables):
+#   UPSTREAM=""   don't relay iPhone push notifications through ntfy.sh
 set -euo pipefail
 
 BASE_URL="${1:-}"
 TOPIC="${TOPIC:-desk}"
 NTFY_USER="${NTFY_USER:-desklock}"
+UPSTREAM="${UPSTREAM-https://ntfy.sh}"
 
 if [[ -z "$BASE_URL" ]]; then
   echo "usage: $0 https://ntfy.yourdomain.com" >&2
@@ -47,6 +53,15 @@ auth-default-access: "deny-all"
 # Frequent keepalives let the Macs notice a dead connection (e.g. after waking) quickly.
 keepalive-interval: "20s"
 EOF
+if [[ -n "$UPSTREAM" ]]; then
+  cat >> /etc/ntfy/server.yml <<EOF
+
+# Lets the ntfy iPhone app get push notifications while it's closed.
+# Only the message ID and a hash of the topic URL go to $UPSTREAM, never the
+# message itself; the phone then fetches the message from this server.
+upstream-base-url: "$UPSTREAM"
+EOF
+fi
 
 # The package normally creates the ntfy user; make sure it exists anyway.
 groupadd -f ntfy
