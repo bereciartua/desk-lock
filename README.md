@@ -47,9 +47,19 @@ Test from a terminal: `~/.local/bin/desklock check`, then `~/.local/bin/desklock
 
 ## 3. Alfred
 
-Double-click `alfred/Desk Lock.alfredworkflow` to import it. Keyword: `away`. If your Alfred preferences sync between Macs, you only import it once. The workflow contains no secrets; it calls `desklock`, which reads the token from that Mac's config.
+Double-click `alfred/Desk Lock.alfredworkflow` to import it. If your Alfred preferences sync between Macs, you only import it once.
 
-To change the keyword or add a hotkey, edit it in Alfred, or change `KEYWORD` in `alfred/build.py` and run `python3 alfred/build.py`.
+| Type | Shows | Steps |
+|---|---|---|
+| `away` | Lock all Macs, then pick Sleep or Screen saver | 2 |
+| `sleep all` | **Sleep on All Computers** | 1 |
+| `screensaver all` | **Screensaver on All Computers** | 1 |
+
+Typing just `sleep` or `screensaver` also shows macOS's own Sleep and Screen Saver commands. Pick ours once and Alfred learns to put it first.
+
+The workflow contains no secrets; it calls `desklock`, which reads the token from that Mac's config. If `desklock` isn't installed or set up on a Mac yet, the commands lock only that Mac and show a notification saying so.
+
+To change keywords or add hotkeys, edit them in Alfred, or change the keywords at the top of `alfred/build.py` and run `python3 alfred/build.py`.
 
 ## Behaviour worth knowing
 

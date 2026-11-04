@@ -14,12 +14,16 @@ HEADER="$CONF_DIR/auth-header" # "Authorization: Bearer tk_..." (kept out of `ps
 die() { echo "desklock: $*" >&2; exit 1; }
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*"; }
 
-[ -r "$CONFIG" ] && [ -r "$HEADER" ] || die "not configured. Run install.sh first."
-# shellcheck source=/dev/null
-. "$CONFIG"
-: "${NTFY_URL:?NTFY_URL missing in $CONFIG}"
-: "${NTFY_TOPIC:=desk}"
-TOPIC_URL="${NTFY_URL%/}/$NTFY_TOPIC"
+CONFIGURED=""
+if [ -r "$CONFIG" ] && [ -r "$HEADER" ]; then
+  # shellcheck source=/dev/null
+  . "$CONFIG"
+  : "${NTFY_URL:?NTFY_URL missing in $CONFIG}"
+  : "${NTFY_TOPIC:=desk}"
+  TOPIC_URL="${NTFY_URL%/}/$NTFY_TOPIC"
+  CONFIGURED=1
+fi
+need_config() { [ -n "$CONFIGURED" ] || die "not configured. Run install.sh first."; }
 
 # Run a command on this Mac. Only these two words are ever acted on.
 act() {
@@ -43,6 +47,11 @@ notify() {
 
 publish() {
   case "$1" in sleep|screensaver) ;; *) die "unknown command: $1" ;; esac
+  if [ -z "$CONFIGURED" ]; then
+    notify "Not set up yet (run install.sh). Only this Mac was locked."
+    act "$1"
+    return 1
+  fi
   if curl -fsS --max-time 5 -H @"$HEADER" -d "$1" "$TOPIC_URL" >/dev/null; then
     return 0 # this Mac receives it too, through its own listener
   fi
@@ -99,7 +108,7 @@ check() {
 
 case "${1:-}" in
   sleep|screensaver) publish "$1" ;;
-  listen) listen ;;
-  check) check ;;
+  listen) need_config; listen ;;
+  check) need_config; check ;;
   *) sed -n '2,8s/^# \{0,1\}//p' "$0"; exit 1 ;;
 esac
