@@ -1,0 +1,105 @@
+#!/bin/bash
+# desklock: lock every Mac at once through your ntfy server.
+#
+#   desklock sleep         turn off the displays on all Macs
+#   desklock screensaver   start the screen saver on all Macs
+#   desklock listen        wait for commands (run by the launch agent)
+#   desklock check         test the connection and token
+set -u
+
+CONF_DIR="${DESKLOCK_CONF_DIR:-$HOME/.config/desklock}"
+CONFIG="$CONF_DIR/config"
+HEADER="$CONF_DIR/auth-header" # "Authorization: Bearer tk_..." (kept out of `ps` output)
+
+die() { echo "desklock: $*" >&2; exit 1; }
+log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*"; }
+
+[ -r "$CONFIG" ] && [ -r "$HEADER" ] || die "not configured. Run install.sh first."
+# shellcheck source=/dev/null
+. "$CONFIG"
+: "${NTFY_URL:?NTFY_URL missing in $CONFIG}"
+: "${NTFY_TOPIC:=desk}"
+TOPIC_URL="${NTFY_URL%/}/$NTFY_TOPIC"
+
+# Run a command on this Mac. Only these two words are ever acted on.
+act() {
+  local cmd
+  case "$1" in
+    sleep)       cmd="pmset displaysleepnow" ;;
+    screensaver) cmd="open -a ScreenSaverEngine" ;;
+    *)           return 1 ;;
+  esac
+  if [ -n "${DESKLOCK_DRYRUN:-}" ]; then
+    echo "DRYRUN: $cmd"
+  else
+    $cmd
+  fi
+}
+
+notify() {
+  [ -n "${DESKLOCK_DRYRUN:-}" ] && { echo "NOTIFY: $1"; return; }
+  osascript -e "display notification \"$1\" with title \"desklock\"" >/dev/null 2>&1
+}
+
+publish() {
+  case "$1" in sleep|screensaver) ;; *) die "unknown command: $1" ;; esac
+  if curl -fsS --max-time 5 -H @"$HEADER" -d "$1" "$TOPIC_URL" >/dev/null; then
+    return 0 # this Mac receives it too, through its own listener
+  fi
+  # Server unreachable: at least lock this Mac.
+  notify "Could not reach ntfy. Only this Mac was locked."
+  act "$1"
+  return 1
+}
+
+extract_message() {
+  if [ -x /usr/bin/jq ]; then
+    /usr/bin/jq -r 'select(.event == "message") | .message' 2>/dev/null
+  else
+    sed -n 's/.*"event":"message".*"message":"\([a-z]*\)".*/\1/p'
+  fi
+}
+
+listen() {
+  log "listening on $TOPIC_URL"
+  while true; do
+    # Only new messages are delivered (no `since`), so a Mac that was closed
+    # never replays old commands when it wakes up.
+    # The server sends a keepalive every 20s; if nothing arrives for 90s
+    # (dead connection after sleep, network change), curl gives up and we reconnect.
+    curl -sSN --fail --speed-limit 1 --speed-time 90 \
+      -H @"$HEADER" "$TOPIC_URL/json" 2>&1 |
+    while IFS= read -r line; do
+      case "$line" in
+        *'"event":"message"'*) ;;
+        *'"event":'*) continue ;;   # open / keepalive
+        *) log "$line"; continue ;;   # curl errors
+      esac
+      msg="$(printf '%s\n' "$line" | extract_message)"
+      if act "$msg"; then
+        log "received '$msg'"
+      else
+        log "ignored '$msg'"
+      fi
+    done
+    sleep "${DESKLOCK_RETRY:-5}"
+  done
+}
+
+check() {
+  local code
+  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 -H @"$HEADER" "$TOPIC_URL/json?poll=1&since=1s")"
+  case "$code" in
+    200) echo "OK: connected to $TOPIC_URL" ;;
+    401|403) die "server reachable but the token was rejected (HTTP $code)" ;;
+    000) die "cannot reach $NTFY_URL (not on your network or Tailscale?)" ;;
+    *) die "unexpected HTTP $code from $TOPIC_URL" ;;
+  esac
+}
+
+case "${1:-}" in
+  sleep|screensaver) publish "$1" ;;
+  listen) listen ;;
+  check) check ;;
+  *) sed -n '2,8s/^# \{0,1\}//p' "$0"; exit 1 ;;
+esac
